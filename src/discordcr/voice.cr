@@ -269,7 +269,7 @@ module Discord
       bytes
     end
 
-    def create_nonce(header : Bytes)
+    private def create_nonce(header : Bytes)
       nonce = nil
       case @mode
       when "xsalsa20_poly1305"

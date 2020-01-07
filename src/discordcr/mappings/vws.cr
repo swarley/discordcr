@@ -71,7 +71,8 @@ module Discord
 
     struct SessionDescriptionPayload
       JSON.mapping(
-        secret_key: Array(UInt8)
+        secret_key: Array(UInt8),
+        mode: String
       )
     end
 

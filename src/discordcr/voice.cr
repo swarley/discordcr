@@ -11,6 +11,8 @@ module Discord
 
     # The mode that tells Discord we want to send encrypted audio
     ENCRYPTED_MODE = "xsalsa20_poly1305"
+    # Supported encryption modes. Sorted by preference
+    ENCRYPTION_MODES = ["xsalsa20_poly1305_lite", "xsalsa20_poly1305_suffix", "xsalsa20_poly1305"]
 
     OP_IDENTIFY            = 0
     OP_SELECT_PROTOCOL     = 1
@@ -19,9 +21,6 @@ module Discord
     OP_SESSION_DESCRIPTION = 4
     OP_SPEAKING            = 5
     OP_HELLO               = 8
-
-    # The heartbeat is the same every time, so it can be a constant
-    HEARTBEAT_JSON = {op: OP_HEARTBEAT, d: nil}.to_json
 
     @udp : VoiceUDP
 
@@ -100,10 +99,18 @@ module Discord
       @udp.send_audio(buf, @sequence, @time)
     end
 
+    private def wrapped_add(num : Number, increment : Number, max : Number)
+      if (num + increment) > max
+        0
+      else
+        num + increment
+      end
+    end
+
     # Increment sequence and time
     private def increment_packet_metadata
-      @sequence += 1
-      @time += 960
+      @sequence = wrapped_add(@sequence, 1, 0xff_ff).as(UInt16)
+      @time = wrapped_add(@time, 960, 0xff_ff_ff_ff).as(UInt32)
     end
 
     private def heartbeat_loop
@@ -146,14 +153,22 @@ module Discord
     end
 
     private def handle_ready(payload : VWS::ReadyPayload)
-      udp_connect(payload.ip, payload.port.to_u32, payload.ssrc.to_u32)
+      supported_modes = ENCRYPTION_MODES & payload.modes
+
+      target_mode = if supported_modes.empty?
+                      raise "No supported modes found. Available: #{payload.modes}"
+                    else
+                      supported_modes.first
+                    end
+
+      udp_connect(payload.ip, payload.port.to_u32, payload.ssrc.to_u32, target_mode)
     end
 
-    private def udp_connect(ip, port, ssrc)
+    private def udp_connect(ip, port, ssrc, encryption_mode)
       @udp.connect(ip, port, ssrc)
       @udp.send_discovery
       ip, port = @udp.receive_discovery_reply
-      send_select_protocol(UDP_PROTOCOL, ip, port, ENCRYPTED_MODE)
+      send_select_protocol(UDP_PROTOCOL, ip, port, encryption_mode)
     end
 
     private def send_identify(server_id, user_id, session_id, token)
@@ -169,6 +184,7 @@ module Discord
 
     private def handle_session_description(payload : VWS::SessionDescriptionPayload)
       @udp.secret_key = Bytes.new(payload.secret_key.to_unsafe, payload.secret_key.size)
+      @udp.mode = payload.mode
 
       # Once the secret key has been received, we are ready to send audio data.
       # Notify the user of this
@@ -186,7 +202,11 @@ module Discord
   # `VoiceClient` instead which uses this class internally.
   class VoiceUDP
     @secret_key : Bytes?
+    @mode : String?
+    @lite_nonce : UInt32 = 0
+
     property secret_key
+    property mode
     getter socket
 
     def initialize
@@ -224,12 +244,19 @@ module Discord
     # time (used on the receiving client to synchronise packets)
     def send_audio(buf, sequence, time)
       header = create_header(sequence, time)
+      nonce = create_nonce(header)
+      buf = encrypt_audio(nonce, buf)
 
-      buf = encrypt_audio(header, buf)
+      new_buf = if @mode == "xsalsa20_poly1305"
+                  Bytes.new(header.size + buf.size)
+                else
+                  Bytes.new(header.size + buf.size + nonce.size)
+                end
 
-      new_buf = Bytes.new(header.size + buf.size)
       header.copy_to(new_buf)
       buf.copy_to(new_buf + header.size)
+
+      nonce.copy_to(new_buf + header.size + buf.size) unless @mode == "xsalsa20_poly1305"
 
       @socket.write(new_buf)
     end
@@ -249,11 +276,34 @@ module Discord
       bytes
     end
 
-    private def encrypt_audio(header : Bytes, buf : Bytes) : Bytes
+    def create_nonce(header : Bytes)
+      nonce = nil
+      case @mode
+      when "xsalsa20_poly1305"
+        nonce = Bytes.new(header.size)
+        header.copy_to(nonce)
+      when "xsalsa20_poly1305_suffix"
+        nonce = Random::Secure.random_bytes(24)
+      when "xsalsa20_poly1305_lite"
+        nonce = Bytes.new(4)
+        IO::ByteFormat::BigEndian.encode(@lite_nonce, nonce)
+
+        @lite_nonce = if @lite_nonce >= 0xff_ff_ff_ff
+                        0_u32
+                      else
+                        @lite_nonce + 1
+                      end
+      else
+        raise "Cannot create a nonce for unsupported audio mode `#{@mode}'"
+      end
+      return nonce
+    end
+
+    private def encrypt_audio(nonce : Bytes, buf : Bytes) : Bytes
       raise "No secret key was set!" unless @secret_key
 
-      nonce = Bytes.new(24, 0_u8) # 24 null bytes
-      header.copy_to(nonce)       # First 12 bytes of nonce is the header
+      sodium_nonce = Bytes.new(24, 0_u8)
+      nonce.copy_to(sodium_nonce)
 
       # Sodium constants
       zero_bytes = Sodium.crypto_secretbox_xsalsa20poly1305_zerobytes
@@ -267,7 +317,7 @@ module Discord
       c = Bytes.new(message.size)
 
       # Encrypt
-      Sodium.crypto_secretbox_xsalsa20poly1305(c, message, message.bytesize, nonce, @secret_key.not_nil!)
+      Sodium.crypto_secretbox_xsalsa20poly1305(c, message, message.bytesize, sodium_nonce, @secret_key.not_nil!)
 
       # The resulting ciphertext buffer has box_zero_bytes zero bytes prepended;
       # we don't want them in the result, so move the slice forward by that many

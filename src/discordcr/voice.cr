@@ -100,18 +100,10 @@ module Discord
       @udp.send_audio(buf, @sequence, @time)
     end
 
-    private def wrapped_add(num : Number, increment : Number, max : Number)
-      if (num + increment) > max
-        0
-      else
-        num + increment
-      end
-    end
-
     # Increment sequence and time
     private def increment_packet_metadata
-      @sequence = wrapped_add(@sequence, 1, 0xff_ff).as(UInt16)
-      @time = wrapped_add(@time, 960, 0xff_ff_ff_ff).as(UInt32)
+      @sequence &+= 1
+      @time &+= 960
     end
 
     private def heartbeat_loop
@@ -289,11 +281,7 @@ module Discord
         nonce = Bytes.new(4)
         IO::ByteFormat::BigEndian.encode(@lite_nonce, nonce)
 
-        @lite_nonce = if @lite_nonce >= 0xff_ff_ff_ff
-                        0_u32
-                      else
-                        @lite_nonce + 1
-                      end
+        @lite_nonce &+= 1
       else
         raise "Cannot create a nonce for unsupported audio mode `#{@mode}'"
       end

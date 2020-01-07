@@ -34,7 +34,7 @@ module Discord
     @session_id : String
     @token : String
 
-    @heartbeat_interval : Int32?
+    @heartbeat_interval : Float32?
     @send_heartbeats = false
 
     # Creates a new voice client. The *payload* should be a payload received
@@ -57,7 +57,7 @@ module Discord
 
       @websocket = Discord::WebSocket.new(
         host: @endpoint,
-        path: "/",
+        path: "/?v=4",
         port: 443,
         tls: true,
         logger: @logger
@@ -109,7 +109,7 @@ module Discord
     private def heartbeat_loop
       while @send_heartbeats
         if @heartbeat_interval
-          @websocket.send(HEARTBEAT_JSON)
+          @websocket.send({op: 3, d: Time.utc.to_unix_ms}.to_json)
           sleep @heartbeat_interval.not_nil!.milliseconds
         else
           sleep 1
@@ -146,13 +146,11 @@ module Discord
     end
 
     private def handle_ready(payload : VWS::ReadyPayload)
-      # We get a new heartbeat interval here that replaces the old one
-      @heartbeat_interval = payload.heartbeat_interval
-      udp_connect(payload.port.to_u32, payload.ssrc.to_u32)
+      udp_connect(payload.ip, payload.port.to_u32, payload.ssrc.to_u32)
     end
 
-    private def udp_connect(port, ssrc)
-      @udp.connect(@endpoint, port, ssrc)
+    private def udp_connect(ip, port, ssrc)
+      @udp.connect(ip, port, ssrc)
       @udp.send_discovery
       ip, port = @udp.receive_discovery_reply
       send_select_protocol(UDP_PROTOCOL, ip, port, ENCRYPTED_MODE)

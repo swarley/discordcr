@@ -9,8 +9,9 @@ module Discord
   class VoiceClient
     UDP_PROTOCOL = "udp"
 
-    # The mode that tells Discord we want to send encrypted audio
+    # DEPRECATED: Discord now supports multiple encryption modes
     ENCRYPTED_MODE = "xsalsa20_poly1305"
+
     # Supported encryption modes. Sorted by preference
     ENCRYPTION_MODES = ["xsalsa20_poly1305_lite", "xsalsa20_poly1305_suffix", "xsalsa20_poly1305"]
 

@@ -9,11 +9,8 @@ module Discord
   class VoiceClient
     UDP_PROTOCOL = "udp"
 
-    # DEPRECATED: Discord now supports multiple encryption modes
-    ENCRYPTED_MODE = "xsalsa20_poly1305"
-
     # Supported encryption modes. Sorted by preference
-    ENCRYPTION_MODES = ["xsalsa20_poly1305_lite", "xsalsa20_poly1305_suffix", "xsalsa20_poly1305"]
+    ENCRYPTION_MODES = {"xsalsa20_poly1305_lite", "xsalsa20_poly1305_suffix", "xsalsa20_poly1305"}
 
     OP_IDENTIFY            = 0
     OP_SELECT_PROTOCOL     = 1
@@ -147,13 +144,7 @@ module Discord
 
     private def handle_ready(payload : VWS::ReadyPayload)
       supported_modes = ENCRYPTION_MODES & payload.modes
-
-      target_mode = if supported_modes.empty?
-                      raise "No supported modes found. Available: #{payload.modes}"
-                    else
-                      supported_modes.first
-                    end
-
+      target_mode = supported_modes.first? || raise "No supported modes found in #{payload.modes}"
       udp_connect(payload.ip, payload.port.to_u32, payload.ssrc.to_u32, target_mode)
     end
 
@@ -283,9 +274,9 @@ module Discord
 
         @lite_nonce &+= 1
       else
-        raise "Cannot create a nonce for unsupported audio mode `#{@mode}'"
+        raise "Cannot create a nonce for unsupported audio mode #{@mode.inspect}"
       end
-      return nonce
+      nonce
     end
 
     private def encrypt_audio(nonce : Bytes, buf : Bytes) : Bytes

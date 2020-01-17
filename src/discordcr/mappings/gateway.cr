@@ -56,7 +56,7 @@ module Discord
         browser: {key: "$browser", type: String},
         device: {key: "$device", type: String},
         referrer: {key: "$referrer", type: String},
-        referring_domain: {key: "$referring_domain", type: String},
+        referring_domain: {key: "$referring_domain", type: String}
       )
     end
 

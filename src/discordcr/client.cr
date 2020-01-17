@@ -1,6 +1,7 @@
 require "json"
 
 require "logger"
+require "./intents"
 require "./rest"
 require "./cache"
 
@@ -96,7 +97,8 @@ module Discord
                    @compress : CompressMode = CompressMode::Stream,
                    @zlib_buffer_size : Int32 = 10 * 1024 * 1024,
                    @properties : Gateway::IdentifyProperties = DEFAULT_PROPERTIES,
-                   @logger = Logger.new(STDOUT))
+                   @logger = Logger.new(STDOUT),
+                   @intents : Intents = Intents::All)
       @logger.progname = "discordcr"
       @backoff = 1.0
 
@@ -327,7 +329,7 @@ module Discord
       end
 
       compress = @compress.large?
-      packet = Gateway::IdentifyPacket.new(@token, @properties, compress, @large_threshold, shard_tuple)
+      packet = Gateway::IdentifyPacket.new(@token, @properties, compress, @large_threshold, shard_tuple, @intents)
       websocket.send(packet.to_json)
     end
 

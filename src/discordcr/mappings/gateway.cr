@@ -22,9 +22,9 @@ module Discord
     end
 
     struct IdentifyPacket
-      def initialize(token, properties, large_threshold, compress, shard)
+      def initialize(token, properties, large_threshold, compress, shard, intents)
         @op = Discord::Client::OP_IDENTIFY
-        @d = IdentifyPayload.new(token, properties, large_threshold, compress, shard)
+        @d = IdentifyPayload.new(token, properties, large_threshold, compress, shard, intents)
       end
 
       JSON.mapping(
@@ -34,7 +34,7 @@ module Discord
     end
 
     struct IdentifyPayload
-      def initialize(@token, @properties, @compress, @large_threshold, @shard)
+      def initialize(@token, @properties, @compress, @large_threshold, @shard, @intents)
       end
 
       JSON.mapping({
@@ -43,6 +43,7 @@ module Discord
         compress:        Bool,
         large_threshold: Int32,
         shard:           Tuple(Int32, Int32)?,
+        intents:         Intents
       })
     end
 
@@ -55,7 +56,7 @@ module Discord
         browser: {key: "$browser", type: String},
         device: {key: "$device", type: String},
         referrer: {key: "$referrer", type: String},
-        referring_domain: {key: "$referring_domain", type: String}
+        referring_domain: {key: "$referring_domain", type: String},
       )
     end
 
